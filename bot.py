@@ -848,6 +848,30 @@ async def select_days(update: Update, context: ContextTypes.DEFAULT_TYPE):
     role = get_role_text(query.from_user.id)
 
     if balance >= price:
+        async def select_days(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    days = int(query.data.split("_")[1])
+
+    traffic = context.user_data.get("traffic_gb")
+
+    if not traffic:
+        await query.edit_message_text(
+            "❌ سفارش منقضی شده است. دوباره خرید را شروع کنید."
+        )
+        return
+
+    price_per_gb = get_price_per_gb(query.from_user.id)
+    price = traffic * price_per_gb
+
+    context.user_data["duration_days"] = days
+    context.user_data["price"] = price
+
+    balance = get_balance(query.from_user.id)
+    role = get_role_text(query.from_user.id)
+
+    if balance >= price:
         keyboard = [
             [
                 InlineKeyboardButton(
