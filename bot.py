@@ -824,4 +824,78 @@ async def select_days(update: Update, context: ContextTypes.DEFAULT_TYPE):
     balance = get_balance(query.from_user.id)
     role = get_role_text(query.from_user.id)
 
-    keyboard = 
+    keyboard = async def select_days(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    days = int(query.data.split("_")[1])
+
+    traffic = context.user_data.get("traffic_gb")
+
+    if not traffic:
+        await query.edit_message_text(
+            "❌ سفارش منقضی شده است. دوباره خرید را شروع کنید."
+        )
+        return
+
+    price_per_gb = get_price_per_gb(query.from_user.id)
+    price = traffic * price_per_gb
+
+    context.user_data["duration_days"] = days
+    context.user_data["price"] = price
+
+    balance = get_balance(query.from_user.id)
+    role = get_role_text(query.from_user.id)
+
+    if balance >= price:
+        keyboard = [
+            [
+                InlineKeyboardButton(
+                    "✅ تایید و خرید",
+                    callback_data="confirm_buy"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    "❌ انصراف",
+                    callback_data="cancel_buy"
+                )
+            ],
+        ]
+    else:
+        keyboard = [
+            [
+                InlineKeyboardButton(
+                    "💳 شارژ کیف پول",
+                    callback_data="charge_start"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    "❌ انصراف",
+                    callback_data="cancel_buy"
+                )
+            ],
+        ]
+
+    text = (
+        "🛒 *خلاصه سفارش*\n\n"
+        f"📦 حجم: {traffic} GB\n"
+        f"⏳ مدت: {days} روز\n"
+        f"💰 نرخ هر GB: {price_per_gb:,} تومان\n"
+        f"💵 مبلغ نهایی: {price:,} تومان\n\n"
+        f"👤 سطح حساب: {role}\n"
+        f"💳 موجودی کیف پول: {balance:,} تومان\n"
+    )
+
+    if balance < price:
+        text += (
+            f"\n⚠️ موجودی شما {price - balance:,} تومان کم است.\n"
+            "ابتدا کیف پول خود را شارژ کنید."
+        )
+
+    await query.edit_message_text(
+        text,
+        parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
