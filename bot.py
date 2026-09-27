@@ -378,38 +378,30 @@ async def buy_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     keyboard = InlineKeyboardMarkup([
         [
-            InlineKeyboardButton(
-                "5 GB",
-                callback_data="traffic:5"
-            ),
-            InlineKeyboardButton(
-                "10 GB",
-                callback_data="traffic:10"
-            ),
+            InlineKeyboardButton("5 GB", callback_data="traffic:5"),
+            InlineKeyboardButton("10 GB", callback_data="traffic:10"),
         ],
         [
-            InlineKeyboardButton(
-                "20 GB",
-                callback_data="traffic:20"
-            ),
-            InlineKeyboardButton(
-                "50 GB",
-                callback_data="traffic:50"
-            ),
+            InlineKeyboardButton("20 GB", callback_data="traffic:20"),
+            InlineKeyboardButton("30 GB", callback_data="traffic:30"),
         ],
         [
-            InlineKeyboardButton(
-                "❌ لغو",
-                callback_data="back"
-            )
+            InlineKeyboardButton("40 GB", callback_data="traffic:40"),
+            InlineKeyboardButton("50 GB", callback_data="traffic:50"),
+        ],
+        [
+            InlineKeyboardButton("100 GB", callback_data="traffic:100"),
+        ],
+        [
+            InlineKeyboardButton("❌ لغو", callback_data="back")
         ]
     ])
 
     await query.edit_message_text(
-        "📦 حجم سرویس را انتخاب کنید:",
+        "📦 حجم سرویس را انتخاب کنید:\n\n"
+        "📅 مدت همه سرویس‌ها: 30 روز",
         reply_markup=keyboard
     )
-
 
 async def traffic_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -424,20 +416,7 @@ async def traffic_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
             InlineKeyboardButton(
                 "30 روز",
                 callback_data="days:30"
-            ),
-            InlineKeyboardButton(
-                "60 روز",
-                callback_data="days:60"
-            ),
-        ],
-        [
-            InlineKeyboardButton(
-                "90 روز",
-                callback_data="days:90"
-            )
-        ],
-        [
-            InlineKeyboardButton(
+            ),InlineKeyboardButton(
                 "❌ لغو",
                 callback_data="back"
             )
