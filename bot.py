@@ -410,18 +410,59 @@ async def traffic_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
     traffic = int(query.data.split(":")[1])
 
     context.user_data["traffic_gb"] = traffic
+    context.user_data["duration_days"] = 30
 
-    keyboard = InlineKeyboardMarkup([
-        [
-            InlineKeyboardButton(
-                "30 روز",
-                callback_data="days:30"
-            ),InlineKeyboardButton(
-                "❌ لغو",
-                callback_data="back"
-            )
-        ]
-    ])
+    price_per_gb = get_price(query.from_user.id)
+    total = traffic * price_per_gb
+    balance = get_balance(query.from_user.id)
+    level = get_level(query.from_user.id)
+
+    if balance >= total:
+        keyboard = InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton(
+                    "✅ تأیید و خرید",
+                    callback_data="confirm_buy"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    "❌ لغو",
+                    callback_data="back"
+                )
+            ]
+        ])
+
+        pay_text = "✅ موجودی برای خرید کافی است."
+    else:
+        keyboard = InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton(
+                    "💳 شارژ کیف پول",
+                    callback_data="charge"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    "❌ لغو",
+                    callback_data="back"
+                )
+            ]
+        ])
+
+        pay_text = "❌ موجودی برای خرید کافی نیست."
+
+    await query.edit_message_text(
+        "🛒 خلاصه خرید\n\n"
+        f"📦 حجم: {traffic} GB\n"
+        "📅 مدت: 30 روز\n"
+        f"👤 نوع حساب: {role_text(level)}\n"
+        f"💵 قیمت هر GB: {price_per_gb:,} تومان\n"
+        f"💰 مبلغ کل: {total:,} تومان\n"
+        f"🏦 موجودی: {balance:,} تومان\n\n"
+        f"{pay_text}",
+        reply_markup=keyboard
+    )
 
     await query.edit_message_text(
         f"📦 حجم انتخابی: {traffic} GB\n\n"
