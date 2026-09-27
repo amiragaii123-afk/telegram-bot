@@ -13,14 +13,23 @@ from telegram.ext import (
     filters,
 )
 
+
+# =========================================================
+# CONFIG
+# =========================================================
+
 BOT_TOKEN = os.environ["BOT_TOKEN"]
 PANEL_API_KEY = os.environ["PANEL_API_KEY"]
 
 BASE_URL = "https://panel.astravionix.site/api/v1"
+
+# Inbound فعال پنل
 RESELLER_INBOUND_ID = 3
 
+# ادمین
 ADMIN_USERNAME = "Raki_vpn"
 
+# اطلاعات کارت شارژ
 CARD_TEXT = (
     "♦️ بلو\n"
     "🌟6219861462979757🌟\n"
@@ -29,12 +38,21 @@ CARD_TEXT = (
 
 DB_FILE = "bot.db"
 
-CHARGE_AMOUNT, CHARGE_RECEIPT = range(2)
 
-# قیمت هر GB
+# =========================================================
+# PRICES
+# =========================================================
+
 PRICE_NORMAL = 8000
 PRICE_RESELLER_1 = 6000
 PRICE_RESELLER_2 = 3200
+
+
+# =========================================================
+# STATES
+# =========================================================
+
+CHARGE_AMOUNT, CHARGE_RECEIPT = range(2)
 
 
 # =========================================================
@@ -51,16 +69,32 @@ def init_db():
     conn = db()
     cur = conn.cursor()
 
+    # USERS
     cur.execute("""
         CREATE TABLE IF NOT EXISTS users (
             telegram_id INTEGER PRIMARY KEY,
-            username TEXT,
+            username TEXT DEFAULT '',
             balance INTEGER DEFAULT 0,
             reseller_level INTEGER DEFAULT 0,
             admin_chat_id INTEGER
         )
     """)
 
+    # Migration برای دیتابیس قدیمی
+    cur.execute("PRAGMA table_info(users)")
+    columns = {row["name"] for row in cur.fetchall()}
+
+    if "reseller_level" not in columns:
+        cur.execute(
+            "ALTER TABLE users ADD COLUMN reseller_level INTEGER DEFAULT 0"
+        )
+
+    if "admin_chat_id" not in columns:
+        cur.execute(
+            "ALTER TABLE users ADD COLUMN admin_chat_id INTEGER"
+        )
+
+    # CHARGE REQUESTS
     cur.execute("""
         CREATE TABLE IF NOT EXISTS charge_requests (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -71,11 +105,12 @@ def init_db():
         )
     """)
 
+    # USER SERVICES
     cur.execute("""
         CREATE TABLE IF NOT EXISTS user_services (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             telegram_id INTEGER NOT NULL,
-            service_id INTEGER NOT NULL,
+            service_id INTEGER NOT NULL UNIQUE,
             traffic_gb INTEGER,
             duration_days INTEGER,
             price INTEGER,
@@ -87,13 +122,22 @@ def init_db():
     conn.close()
 
 
+# =========================================================
+# USER FUNCTIONS
+# =========================================================
+
 def ensure_user(user):
     conn = db()
     cur = conn.cursor()
 
     cur.execute("""
         INSERT OR IGNORE INTO users
-        (telegram_id, username, balance, reseller_level)
+        (
+            telegram_id,
+            username,
+            balance,
+            reseller_level
+        )
         VALUES (?, ?, 0, 0)
     """, (
         user.id,
@@ -109,8 +153,9 @@ def ensure_user(user):
         user.id
     ))
 
-    # اگر کاربر ادمین است، Chat ID او را ذخیره کن
+    # اگر این کاربر ادمین است، Chat ID ذخیره شود
     if (user.username or "").lower() == ADMIN_USERNAME.lower():
+
         cur.execute("""
             UPDATE users
             SET admin_chat_id=?
@@ -132,12 +177,18 @@ def get_balance(telegram_id):
         SELECT balance
         FROM users
         WHERE telegram_id=?
-    """, (telegram_id,))
+    """, (
+        telegram_id,
+    ))
 
     row = cur.fetchone()
+
     conn.close()
 
-    return int(row["balance"]) if row else 0
+    if row:
+        return int(row["balance"])
+
+    return 0
 
 
 def get_reseller_level(telegram_id):
@@ -148,15 +199,22 @@ def get_reseller_level(telegram_id):
         SELECT reseller_level
         FROM users
         WHERE telegram_id=?
-    """, (telegram_id,))
+    """, (
+        telegram_id,
+    ))
 
     row = cur.fetchone()
+
     conn.close()
 
-    return int(row["reseller_level"]) if row else 0
+    if row:
+        return int(row["reseller_level"])
+
+    return 0
 
 
 def get_price_per_gb(telegram_id):
+
     level = get_reseller_level(telegram_id)
 
     if level == 2:
@@ -169,6 +227,7 @@ def get_price_per_gb(telegram_id):
 
 
 def get_role_text(telegram_id):
+
     level = get_reseller_level(telegram_id)
 
     if level == 2:
@@ -180,7 +239,12 @@ def get_role_text(telegram_id):
     return "👤 کاربر عادی"
 
 
+# =========================================================
+# WALLET FUNCTIONS
+# =========================================================
+
 def change_balance(telegram_id, amount):
+
     conn = db()
     cur = conn.cursor()
 
@@ -197,13 +261,66 @@ def change_balance(telegram_id, amount):
     conn.close()
 
 
-def save_service(telegram_id, service_id, traffic_gb, duration_days, price):
+def try_charge_balance(telegram_id, amount):
+
+    conn = db()
+    cur = conn.cursor()
+
+    try:
+
+        cur.execute("BEGIN IMMEDIATE")
+
+        cur.execute("""
+            UPDATE users
+            SET balance = balance - ?
+            WHERE telegram_id=?
+            AND balance >= ?
+        """, (
+            amount,
+            telegram_id,
+            amount
+        ))
+
+        success = cur.rowcount == 1
+
+        conn.commit()
+
+        return success
+
+    except Exception:
+
+        conn.rollback()
+        raise
+
+    finally:
+
+        conn.close()
+
+
+# =========================================================
+# SERVICE DATABASE
+# =========================================================
+
+def save_service(
+    telegram_id,
+    service_id,
+    traffic_gb,
+    duration_days,
+    price
+):
+
     conn = db()
     cur = conn.cursor()
 
     cur.execute("""
-        INSERT INTO user_services
-        (telegram_id, service_id, traffic_gb, duration_days, price)
+        INSERT OR IGNORE INTO user_services
+        (
+            telegram_id,
+            service_id,
+            traffic_gb,
+            duration_days,
+            price
+        )
         VALUES (?, ?, ?, ?, ?)
     """, (
         telegram_id,
@@ -217,7 +334,37 @@ def save_service(telegram_id, service_id, traffic_gb, duration_days, price):
     conn.close()
 
 
+def get_user_service_ids(telegram_id):
+
+    conn = db()
+    cur = conn.cursor()
+
+    cur.execute("""
+        SELECT
+            service_id,
+            traffic_gb,
+            duration_days,
+            price
+        FROM user_services
+        WHERE telegram_id=?
+        ORDER BY id DESC
+    """, (
+        telegram_id,
+    ))
+
+    rows = cur.fetchall()
+
+    conn.close()
+
+    return rows
+
+
+# =========================================================
+# ADMIN
+# =========================================================
+
 def get_admin_chat_id():
+
     conn = db()
     cur = conn.cursor()
 
@@ -227,12 +374,18 @@ def get_admin_chat_id():
         WHERE LOWER(username)=LOWER(?)
         AND admin_chat_id IS NOT NULL
         LIMIT 1
-    """, (ADMIN_USERNAME,))
+    """, (
+        ADMIN_USERNAME,
+    ))
 
     row = cur.fetchone()
+
     conn.close()
 
-    return int(row["admin_chat_id"]) if row else None
+    if row:
+        return int(row["admin_chat_id"])
+
+    return None
 
 
 # =========================================================
@@ -240,12 +393,14 @@ def get_admin_chat_id():
 # =========================================================
 
 async def api_request(method, endpoint, **kwargs):
+
     headers = {
         "X-API-Key": PANEL_API_KEY,
         "Content-Type": "application/json",
     }
 
     async with httpx.AsyncClient(timeout=30) as client:
+
         response = await client.request(
             method,
             BASE_URL + endpoint,
@@ -253,10 +408,14 @@ async def api_request(method, endpoint, **kwargs):
             **kwargs
         )
 
-        print("API STATUS:", response.status_code)
-        print("API RESPONSE:", response.text[:2000])
+    print("API STATUS:", response.status_code)
+    print("API RESPONSE:", response.text[:2000])
 
     response.raise_for_status()
+
+    if not response.text:
+        return {}
+
     return response.json()
 
 
@@ -265,7 +424,9 @@ async def api_request(method, endpoint, **kwargs):
 # =========================================================
 
 def main_menu():
+
     keyboard = [
+
         [
             InlineKeyboardButton(
                 "🔐 خرید اشتراک",
@@ -276,6 +437,7 @@ def main_menu():
                 callback_data="renew"
             ),
         ],
+
         [
             InlineKeyboardButton(
                 "🏦 کیف پول + شارژ",
@@ -286,6 +448,7 @@ def main_menu():
                 callback_data="services"
             ),
         ],
+
         [
             InlineKeyboardButton(
                 "📚 آموزش",
@@ -296,6 +459,7 @@ def main_menu():
                 callback_data="support"
             ),
         ],
+
         [
             InlineKeyboardButton(
                 "👥 زیر مجموعه گیری",
@@ -311,20 +475,26 @@ def main_menu():
     return InlineKeyboardMarkup(keyboard)
 
 
+# =========================================================
+# START
+# =========================================================
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
     ensure_user(update.effective_user)
 
     user = update.effective_user
 
     if (user.username or "").lower() == ADMIN_USERNAME.lower():
+
         await update.message.reply_text(
             "👨‍💻 پنل ادمین فعال شد.\n\n"
-            "برای مدیریت نماینده‌ها:\n"
+            "مدیریت نماینده‌ها:\n\n"
             "/setrep TELEGRAM_ID LEVEL\n\n"
             "LEVEL:\n"
             "0 = کاربر عادی\n"
-            "1 = نماینده سطح ۱\n"
-            "2 = نماینده سطح ۲"
+            "1 = نماینده سطح ۱ → ۶۰۰۰ تومان/GB\n"
+            "2 = نماینده سطح ۲ → ۳۲۰۰ تومان/GB"
         )
 
     await update.message.reply_text(
@@ -335,26 +505,34 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # =========================================================
-# ADMIN
+# ADMIN SET REPRESENTATIVE
 # =========================================================
 
 async def set_rep(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
     user = update.effective_user
 
     if (user.username or "").lower() != ADMIN_USERNAME.lower():
-        await update.message.reply_text("⛔ دسترسی ندارید.")
+
+        await update.message.reply_text(
+            "⛔ دسترسی ندارید."
+        )
+
         return
 
     if len(context.args) != 2:
+
         await update.message.reply_text(
-            "فرمت صحیح:\n"
+            "فرمت صحیح:\n\n"
             "/setrep TELEGRAM_ID LEVEL\n\n"
             "مثال:\n"
             "/setrep 123456789 1"
         )
+
         return
 
     try:
+
         telegram_id = int(context.args[0])
         level = int(context.args[1])
 
@@ -362,10 +540,12 @@ async def set_rep(update: Update, context: ContextTypes.DEFAULT_TYPE):
             raise ValueError
 
     except ValueError:
+
         await update.message.reply_text(
             "❌ اطلاعات نامعتبر است.\n"
             "LEVEL باید 0 یا 1 یا 2 باشد."
         )
+
         return
 
     conn = db()
@@ -373,9 +553,16 @@ async def set_rep(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     cur.execute("""
         INSERT OR IGNORE INTO users
-        (telegram_id, username, balance, reseller_level)
+        (
+            telegram_id,
+            username,
+            balance,
+            reseller_level
+        )
         VALUES (?, '', 0, 0)
-    """, (telegram_id,))
+    """, (
+        telegram_id,
+    ))
 
     cur.execute("""
         UPDATE users
@@ -403,11 +590,29 @@ async def set_rep(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # =========================================================
+# HOME
+# =========================================================
+
+async def home(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    query = update.callback_query
+
+    await query.answer()
+
+    await query.edit_message_text(
+        "🏠 صفحه اصلی:",
+        reply_markup=main_menu()
+    )
+
+
+# =========================================================
 # WALLET
 # =========================================================
 
 async def wallet(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
     query = update.callback_query
+
     await query.answer()
 
     ensure_user(query.from_user)
@@ -417,31 +622,45 @@ async def wallet(update: Update, context: ContextTypes.DEFAULT_TYPE):
     price = get_price_per_gb(query.from_user.id)
 
     keyboard = [
+
         [
             InlineKeyboardButton(
                 "💳 شارژ کیف پول",
                 callback_data="charge"
             )
         ],
+
         [
             InlineKeyboardButton(
                 "🔙 بازگشت",
                 callback_data="home"
             )
         ],
+
     ]
 
     await query.edit_message_text(
+
         f"🏦 کیف پول شما\n\n"
         f"💰 موجودی: {balance:,} تومان\n"
         f"👤 نوع حساب: {role}\n"
         f"📦 قیمت هر GB: {price:,} تومان",
+
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
 
-async def charge_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# =========================================================
+# CHARGE START
+# =========================================================
+
+async def charge_start(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
+
     query = update.callback_query
+
     await query.answer()
 
     await query.edit_message_text(
@@ -453,57 +672,91 @@ async def charge_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return CHARGE_AMOUNT
 
 
-async def charge_amount(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# =========================================================
+# CHARGE AMOUNT
+# =========================================================
+
+async def charge_amount(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
+
     try:
-        amount = int(update.message.text.strip())
+
+        amount = int(
+            update.message.text.strip()
+        )
 
         if amount <= 0:
             raise ValueError
 
     except ValueError:
+
         await update.message.reply_text(
-            "❌ مبلغ واردشده معتبر نیست.\n"
+            "❌ مبلغ واردشده معتبر نیست.\n\n"
             "مثلاً 100000 وارد کنید."
         )
+
         return CHARGE_AMOUNT
 
     context.user_data["charge_amount"] = amount
 
     await update.message.reply_text(
+
         "💳 لطفاً مبلغ زیر را به کارت زیر واریز کنید:\n\n"
+
         f"{CARD_TEXT}\n\n"
+
         f"💰 مبلغ: {amount:,} تومان\n\n"
-        "بعد از واریز، تصویر رسید را همینجا ارسال کنید."
+
+        "📸 بعد از واریز، تصویر رسید را همینجا ارسال کنید."
     )
 
     return CHARGE_RECEIPT
 
 
-async def charge_receipt(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# =========================================================
+# CHARGE RECEIPT
+# =========================================================
+
+async def charge_receipt(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
+
     if not update.message.photo:
+
         await update.message.reply_text(
             "📸 لطفاً تصویر رسید واریز را ارسال کنید."
         )
+
         return CHARGE_RECEIPT
 
     user = update.effective_user
+
     ensure_user(user)
 
-    amount = context.user_data.get("charge_amount")
+    amount = context.user_data.get(
+        "charge_amount"
+    )
 
     if not amount:
+
         await update.message.reply_text(
-            "❌ درخواست شارژ منقضی شده است. دوباره شروع کنید."
+            "❌ درخواست شارژ منقضی شده است."
         )
+
         return ConversationHandler.END
 
     admin_chat_id = get_admin_chat_id()
 
     if not admin_chat_id:
+
         await update.message.reply_text(
-            "⚠️ ادمین هنوز ربات را فعال نکرده است.\n"
+            "⚠️ ادمین هنوز ربات را فعال نکرده است.\n\n"
             "ادمین باید یک‌بار /start را برای ربات ارسال کند."
         )
+
         return ConversationHandler.END
 
     conn = db()
@@ -511,7 +764,11 @@ async def charge_receipt(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     cur.execute("""
         INSERT INTO charge_requests
-        (telegram_id, amount, status)
+        (
+            telegram_id,
+            amount,
+            status
+        )
         VALUES (?, ?, 'pending')
     """, (
         user.id,
@@ -524,34 +781,80 @@ async def charge_receipt(update: Update, context: ContextTypes.DEFAULT_TYPE):
     conn.close()
 
     admin_message = (
+
         "💳 درخواست شارژ جدید\n\n"
+
         f"🆔 درخواست: {request_id}\n"
+
         f"👤 کاربر: {user.first_name}\n"
-        f"🔹 Username: @{user.username if user.username else 'ندارد'}\n"
+
+        f"🔹 Username: "
+        f"@{user.username if user.username else 'ندارد'}\n"
+
         f"🆔 Telegram ID: {user.id}\n"
+
         f"💰 مبلغ: {amount:,} تومان\n\n"
+
         "رسید را بررسی کنید."
     )
 
     keyboard = InlineKeyboardMarkup([
+
         [
+
             InlineKeyboardButton(
                 "✅ تأیید",
                 callback_data=f"approve_{request_id}"
             ),
+
             InlineKeyboardButton(
                 "❌ رد",
                 callback_data=f"reject_{request_id}"
             ),
+
         ]
+
     ])
 
-    await context.bot.send_photo(
-        chat_id=admin_chat_id,
-        photo=update.message.photo[-1].file_id,
-        caption=admin_message,
-        reply_markup=keyboard
-    )
+    try:
+
+        await context.bot.send_photo(
+
+            chat_id=admin_chat_id,
+
+            photo=update.message.photo[-1].file_id,
+
+            caption=admin_message,
+
+            reply_markup=keyboard
+        )
+
+    except Exception as e:
+
+        print(
+            "ADMIN SEND ERROR:",
+            repr(e)
+        )
+
+        conn = db()
+        cur = conn.cursor()
+
+        cur.execute("""
+            DELETE FROM charge_requests
+            WHERE id=?
+            AND status='pending'
+        """, (
+            request_id,
+        ))
+
+        conn.commit()
+        conn.close()
+
+        await update.message.reply_text(
+            "❌ ارسال رسید به ادمین انجام نشد."
+        )
+
+        return ConversationHandler.END
 
     await update.message.reply_text(
         "✅ رسید شما برای ادمین ارسال شد.\n\n"
@@ -567,68 +870,92 @@ async def charge_receipt(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ADMIN CHARGE ACTION
 # =========================================================
 
-async def admin_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def admin_action(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
+
     query = update.callback_query
 
     username = query.from_user.username or ""
 
     if username.lower() != ADMIN_USERNAME.lower():
+
         await query.answer(
             "⛔ شما دسترسی ادمین ندارید.",
             show_alert=True
         )
+
         return
 
     await query.answer()
 
     data = query.data
 
-    if data.startswith("approve_"):
-        request_id = int(data.split("_")[1])
+    action, request_id_text = data.split("_", 1)
 
-        conn = db()
-        cur = conn.cursor()
+    request_id = int(request_id_text)
+
+    conn = db()
+    cur = conn.cursor()
+
+    cur.execute("""
+        SELECT
+            telegram_id,
+            amount,
+            status
+        FROM charge_requests
+        WHERE id=?
+    """, (
+        request_id,
+    ))
+
+    row = cur.fetchone()
+
+    if not row:
+
+        conn.close()
+
+        await query.edit_message_caption(
+            caption="❌ درخواست پیدا نشد."
+        )
+
+        return
+
+    telegram_id = int(row["telegram_id"])
+    amount = int(row["amount"])
+    status = row["status"]
+
+    if status != "pending":
+
+        conn.close()
+
+        await query.answer(
+            "این درخواست قبلاً بررسی شده.",
+            show_alert=True
+        )
+
+        return
+
+    # APPROVE
+    if action == "approve":
 
         try:
+
             cur.execute("BEGIN IMMEDIATE")
-
-            cur.execute("""
-                SELECT telegram_id, amount, status
-                FROM charge_requests
-                WHERE id=?
-            """, (request_id,))
-
-            row = cur.fetchone()
-
-            if not row:
-                conn.rollback()
-                await query.edit_message_caption(
-                    caption="❌ درخواست پیدا نشد."
-                )
-                return
-
-            telegram_id = int(row["telegram_id"])
-            amount = int(row["amount"])
-            status = row["status"]
-
-            if status != "pending":
-                conn.rollback()
-                await query.answer(
-                    "این درخواست قبلاً بررسی شده.",
-                    show_alert=True
-                )
-                return
 
             cur.execute("""
                 UPDATE charge_requests
                 SET status='approved'
                 WHERE id=?
                 AND status='pending'
-            """, (request_id,))
+            """, (
+                request_id,
+            ))
 
             cur.execute("""
                 UPDATE users
-                SET balance = balance + ?
+                SET balance=balance+?
                 WHERE telegram_id=?
             """, (
                 amount,
@@ -638,288 +965,29 @@ async def admin_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
             conn.commit()
 
         except Exception as e:
+
             conn.rollback()
-            print("APPROVE ERROR:", repr(e))
-            await query.answer(
-                "خطا در تأیید.",
-                show_alert=True
-            )
-            return
 
-        finally:
+            print(
+                "APPROVE ERROR:",
+                repr(e)
+            )
+
             conn.close()
 
-        new_balance = get_balance(telegram_id)
-
-        await context.bot.send_message(
-            chat_id=telegram_id,
-            text=(
-                "✅ شارژ کیف پول تأیید شد.\n\n"
-                f"💰 مبلغ افزوده‌شده: {amount:,} تومان\n"
-                f"🏦 موجودی جدید: {new_balance:,} تومان"
-            )
-        )
-
-        await query.edit_message_caption(
-            caption=(
-                "✅ شارژ تأیید شد.\n\n"
-                f"💰 مبلغ: {amount:,} تومان\n"
-                f"🏦 موجودی کاربر: {new_balance:,} تومان"
-            )
-        )
-
-    elif data.startswith("reject_"):
-        request_id = int(data.split("_")[1])
-
-        conn = db()
-        cur = conn.cursor()
-
-        cur.execute("""
-            SELECT telegram_id, amount, status
-            FROM charge_requests
-            WHERE id=?
-        """, (request_id,))
-
-        row = cur.fetchone()
-
-        if not row:
-            conn.close()
             await query.answer(
-                "درخواست پیدا نشد.",
+                "❌ خطا در تأیید.",
                 show_alert=True
             )
+
             return
 
-        telegram_id = int(row["telegram_id"])
-        amount = int(row["amount"])
-        status = row["status"]
-
-        if status != "pending":
-            conn.close()
-            await query.answer(
-                "این درخواست قبلاً بررسی شده.",
-                show_alert=True
-            )
-            return
-
-        cur.execute("""
-            UPDATE charge_requests
-            SET status='rejected'
-            WHERE id=?
-        """, (request_id,))
-
-        conn.commit()
         conn.close()
 
-        await context.bot.send_message(
-            chat_id=telegram_id,
-            text=(
-                "❌ درخواست شارژ شما رد شد.\n\n"
-                f"💰 مبلغ: {amount:,} تومان\n\n"
-                "در صورت اشتباه، با پشتیبانی تماس بگیرید."
-            )
+        new_balance = get_balance(
+            telegram_id
         )
 
-        await query.edit_message_caption(
-            caption=(
-                "❌ شارژ رد شد.\n\n"
-                f"💰 مبلغ: {amount:,} تومان"
-            )
-        )
+        try:
 
-
-# =========================================================
-# BUY
-# =========================================================
-
-async def buy(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-
-    ensure_user(query.from_user)
-
-    price = get_price_per_gb(query.from_user.id)
-    role = get_role_text(query.from_user.id)
-
-    keyboard = [
-        [
-            InlineKeyboardButton("5 GB", callback_data="traffic_5"),
-            InlineKeyboardButton("10 GB", callback_data="traffic_10"),
-        ],
-        [
-            InlineKeyboardButton("20 GB", callback_data="traffic_20"),
-            InlineKeyboardButton("50 GB", callback_data="traffic_50"),
-        ],
-        [
-            InlineKeyboardButton(
-                "🔙 بازگشت",
-                callback_data="home"
-            )
-        ],
-    ]
-
-    await query.edit_message_text(
-        "🔐 خرید اشتراک\n\n"
-        f"👤 نوع حساب: {role}\n"
-        f"💰 قیمت: {price:,} تومان به ازای هر GB\n\n"
-        "📦 حجم سرویس را انتخاب کنید:",
-        reply_markup=InlineKeyboardMarkup(keyboard)
-    )
-
-
-async def select_traffic(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-
-    traffic = int(query.data.split("_")[1])
-
-    context.user_data["traffic_gb"] = traffic
-
-    keyboard = [
-        [
-            InlineKeyboardButton(
-                "30 روز",
-                callback_data="days_30"
-            ),
-            InlineKeyboardButton(
-                "60 روز",
-                callback_data="days_60"
-            ),
-        ],
-        [
-            InlineKeyboardButton(
-                "90 روز",
-                callback_data="days_90"
-            )
-        ],
-    ]
-
-    await query.edit_message_text(
-        f"📦 حجم انتخابی: {traffic} GB\n\n"
-        "📅 مدت سرویس را انتخاب کنید:",
-        reply_markup=InlineKeyboardMarkup(keyboard)
-    )
-
-
-async def select_days(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-
-    days = int(query.data.split("_")[1])
-
-    traffic = context.user_data.get("traffic_gb")
-
-    if not traffic:
-        await query.edit_message_text(
-            "❌ سفارش منقضی شده است. دوباره خرید را شروع کنید."
-        )
-        return
-
-    price_per_gb = get_price_per_gb(query.from_user.id)
-    price = traffic * price_per_gb
-
-    context.user_data["duration_days"] = days
-    context.user_data["price"] = price
-
-    balance = get_balance(query.from_user.id)
-    role = get_role_text(query.from_user.id)
-
-    async def select_days(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-
-    days = int(query.data.split("_")[1])
-
-    traffic = context.user_data.get("traffic_gb")
-
-    if not traffic:
-        await query.edit_message_text(
-            "❌ سفارش منقضی شده است. دوباره خرید را شروع کنید."
-        )
-        return
-
-    price_per_gb = get_price_per_gb(query.from_user.id)
-    price = traffic * price_per_gb
-
-    context.user_data["duration_days"] = days
-    context.user_data["price"] = price
-
-    balance = get_balance(query.from_user.id)
-    role = get_role_text(query.from_user.id)
-
-    if balance >= price:
-        async def select_days(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-
-    days = int(query.data.split("_")[1])
-
-    traffic = context.user_data.get("traffic_gb")
-
-    if not traffic:
-        await query.edit_message_text(
-            "❌ سفارش منقضی شده است. دوباره خرید را شروع کنید."
-        )
-        return
-
-    price_per_gb = get_price_per_gb(query.from_user.id)
-    price = traffic * price_per_gb
-
-    context.user_data["duration_days"] = days
-    context.user_data["price"] = price
-
-    balance = get_balance(query.from_user.id)
-    role = get_role_text(query.from_user.id)
-
-    if balance >= price:
-        keyboard = [
-            [
-                InlineKeyboardButton(
-                    "✅ تایید و خرید",
-                    callback_data="confirm_buy"
-                )
-            ],
-            [
-                InlineKeyboardButton(
-                    "❌ انصراف",
-                    callback_data="cancel_buy"
-                )
-            ],
-        ]
-    else:
-        keyboard = [
-            [
-                InlineKeyboardButton(
-                    "💳 شارژ کیف پول",
-                    callback_data="charge_start"
-                )
-            ],
-            [
-                InlineKeyboardButton(
-                    "❌ انصراف",
-                    callback_data="cancel_buy"
-                )
-            ],
-        ]
-
-    text = (
-        "🛒 *خلاصه سفارش*\n\n"
-        f"📦 حجم: {traffic} GB\n"
-        f"⏳ مدت: {days} روز\n"
-        f"💰 نرخ هر GB: {price_per_gb:,} تومان\n"
-        f"💵 مبلغ نهایی: {price:,} تومان\n\n"
-        f"👤 سطح حساب: {role}\n"
-        f"💳 موجودی کیف پول: {balance:,} تومان\n"
-    )
-
-    if balance < price:
-        text += (
-            f"\n⚠️ موجودی شما {price - balance:,} تومان کم است.\n"
-            "ابتدا کیف پول خود را شارژ کنید."
-        )
-
-    await query.edit_message_text(
-        text,
-        parse_mode="Markdown",
-        reply_markup=InlineKeyboardMarkup(keyboard)
-    )
+            await context.bot.send_mes
