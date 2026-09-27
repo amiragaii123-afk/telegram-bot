@@ -20,7 +20,39 @@ PANEL_API_KEY = os.environ["PANEL_API_KEY"]
 BASE_URL = "https://panel.astravionix.site/api/v1"
 RESELLER_INBOUND_ID = 3
 
-ADMIN_USERNAME = "Raki_vpn"
+def is_admin(user):
+    return (
+        user.username
+        and user.username.lower() == ADMIN_USERNAME.lower()
+    )
+
+
+def main_menu(user):
+    buttons = [
+        [
+            InlineKeyboardButton("🛒 خرید VPN", callback_data="buy"),
+            InlineKeyboardButton("💰 کیف پول", callback_data="wallet"),
+        ],
+        [
+            InlineKeyboardButton("📦 سرویس‌های من", callback_data="services"),
+            InlineKeyboardButton("🔄 تمدید", callback_data="renew"),
+        ],
+        [
+            InlineKeyboardButton("🎧 پشتیبانی", callback_data="support"),
+            InlineKeyboardButton("👑 نمایندگی", callback_data="reseller"),
+        ],
+    ]
+
+    # فقط Raki_vpn پنل مدیریت را می‌بیند
+    if is_admin(user):
+        buttons.append([
+            InlineKeyboardButton(
+                "👑 پنل مدیریت",
+                callback_data="admin_panel"
+            )
+        ])
+
+    return InlineKeyboardMarkup(buttons)
 
 CARD_TEXT = (
     "💳 اطلاعات کارت برای شارژ کیف پول:\n\n"
