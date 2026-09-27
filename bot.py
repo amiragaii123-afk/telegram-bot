@@ -824,7 +824,7 @@ async def select_days(update: Update, context: ContextTypes.DEFAULT_TYPE):
     balance = get_balance(query.from_user.id)
     role = get_role_text(query.from_user.id)
 
-    keyboard = async def select_days(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def select_days(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
 
