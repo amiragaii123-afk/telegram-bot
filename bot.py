@@ -14,7 +14,7 @@ BOT_TOKEN = os.environ["BOT_TOKEN"]
 PANEL_API_KEY = os.environ["PANEL_API_KEY"]
 
 BASE_URL = "https://panel.astravionix.site/api/v1"
-RESELLER_INBOUND_ID = 12
+RESELLER_INBOUND_ID = 3
 
 NAME, TRAFFIC, DAYS = range(3)
 
