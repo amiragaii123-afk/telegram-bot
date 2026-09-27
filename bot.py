@@ -26,12 +26,15 @@ async def api_request(method, endpoint, **kwargs):
     }
 
     async with httpx.AsyncClient(timeout=30) as client:
-        response = await client.request(
+                response = await client.request(
             method,
             BASE_URL + endpoint,
             headers=headers,
             **kwargs
         )
+
+        print("API STATUS:", response.status_code)
+        print("API RESPONSE:", response.text[:2000])
 
     response.raise_for_status()
     return response.json()
