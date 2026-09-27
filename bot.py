@@ -148,10 +148,13 @@ async def get_days(update: Update, context: ContextTypes.DEFAULT_TYPE):
             except Exception:
                 pass
 
-    except Exception as e:
+        except Exception as e:
+        print("API ERROR:", repr(e))
+
         await update.message.reply_text(
             "❌ هنگام ارتباط با پنل خطایی رخ داد.\n"
-            "لطفاً تنظیمات API را بررسی کنید."
+            "جزئیات خطا در لاگ سرور ثبت شد."
+      
         )
 
     return ConversationHandler.END
