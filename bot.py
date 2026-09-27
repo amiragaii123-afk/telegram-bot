@@ -26,7 +26,7 @@ async def api_request(method, endpoint, **kwargs):
     }
 
     async with httpx.AsyncClient(timeout=30) as client:
-                response = await client.request(
+        response = await client.request(
             method,
             BASE_URL + endpoint,
             headers=headers,
@@ -67,7 +67,9 @@ async def get_traffic(update: Update, context: ContextTypes.DEFAULT_TYPE):
             raise ValueError
 
     except ValueError:
-        await update.message.reply_text("لطفاً فقط یک عدد معتبر وارد کن. مثلاً 50")
+        await update.message.reply_text(
+            "لطفاً فقط یک عدد معتبر وارد کن. مثلاً 50"
+        )
         return TRAFFIC
 
     context.user_data["traffic_gb"] = traffic
@@ -87,7 +89,9 @@ async def get_days(update: Update, context: ContextTypes.DEFAULT_TYPE):
             raise ValueError
 
     except ValueError:
-        await update.message.reply_text("لطفاً فقط یک عدد معتبر وارد کن. مثلاً 30")
+        await update.message.reply_text(
+            "لطفاً فقط یک عدد معتبر وارد کن. مثلاً 30"
+        )
         return DAYS
 
     context.user_data["duration_days"] = days
@@ -148,16 +152,15 @@ async def get_days(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     + str(sub)
                 )
 
-            except Exception:
-                pass
+            except Exception as e:
+                print("SUBSCRIPTION ERROR:", repr(e))
 
-        except Exception as e:
+    except Exception as e:
         print("API ERROR:", repr(e))
 
         await update.message.reply_text(
             "❌ هنگام ارتباط با پنل خطایی رخ داد.\n"
             "جزئیات خطا در لاگ سرور ثبت شد."
-      
         )
 
     return ConversationHandler.END
@@ -175,13 +178,22 @@ def main():
         entry_points=[CommandHandler("start", start)],
         states={
             NAME: [
-                MessageHandler(filters.TEXT & ~filters.COMMAND, get_name)
+                MessageHandler(
+                    filters.TEXT & ~filters.COMMAND,
+                    get_name
+                )
             ],
             TRAFFIC: [
-                MessageHandler(filters.TEXT & ~filters.COMMAND, get_traffic)
+                MessageHandler(
+                    filters.TEXT & ~filters.COMMAND,
+                    get_traffic
+                )
             ],
             DAYS: [
-                MessageHandler(filters.TEXT & ~filters.COMMAND, get_days)
+                MessageHandler(
+                    filters.TEXT & ~filters.COMMAND,
+                    get_days
+                )
             ],
         },
         fallbacks=[
