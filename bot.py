@@ -61,27 +61,7 @@ def main_menu(user):
         ]
     ]
 
-    if is_admin(user):
-        buttons.append([
-            InlineKeyboardButton(
-                "👑 پنل مدیریت",
-                callback_data="admin_panel"
-            )
-        ])
-
-    return InlineKeyboardMarkup(buttons)
-
-    # فقط Raki_vpn پنل مدیریت را می‌بیند
-    if is_admin(user):
-        buttons.append([
-            InlineKeyboardButton(
-                "👑 پنل مدیریت",
-                callback_data="admin_panel"
-            )
-        ])
-
-    return InlineKeyboardMarkup(buttons)
-
+    
 CARD_TEXT = (
     "💳 اطلاعات کارت برای شارژ کیف پول:\n\n"
     "♦️ بلو\n"
@@ -396,39 +376,6 @@ async def api_request(method, endpoint, **kwargs):
 
 # ================= MENU =================
 
-def main_menu():
-    return InlineKeyboardMarkup([
-        [
-            InlineKeyboardButton(
-                "🛒 خرید VPN",
-                callback_data="buy"
-            ),
-            InlineKeyboardButton(
-                "💰 کیف پول",
-                callback_data="wallet"
-            ),
-        ],
-        [
-            InlineKeyboardButton(
-                "📦 سرویس‌های من",
-                callback_data="services"
-            ),
-            InlineKeyboardButton(
-                "🔄 تمدید",
-                callback_data="renew"
-            ),
-        ],
-        [
-            InlineKeyboardButton(
-                "🎧 پشتیبانی",
-                callback_data="support"
-            ),
-            InlineKeyboardButton(
-                "👑 نمایندگی",
-                callback_data="reseller"
-            ),
-        ],
-    ])
 
 
 # ================= START =================
@@ -484,9 +431,8 @@ async def buy_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ])
 
     await query.edit_message_text(
-        "📦 حجم سرویس را انتخاب کنید:\n\n"
-        "📅 مدت همه سرویس‌ها: 30 روز",
-        reply_markup=keyboard
+    "📦 حجم سرویس را انتخاب کنید:",
+    reply_markup=keyboard
     )
 
 async def traffic_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -550,14 +496,9 @@ async def traffic_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=keyboard
     )
 
-    await query.edit_message_text(
-        f"📦 حجم انتخابی: {traffic} GB\n\n"
-        "📅 مدت سرویس را انتخاب کنید:",
-        reply_markup=keyboard
-    )
+    
 
 
-async def days_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
 
