@@ -16,32 +16,60 @@ from telegram.ext import (
 
 BOT_TOKEN = os.environ["BOT_TOKEN"]
 PANEL_API_KEY = os.environ["PANEL_API_KEY"]
+
 ADMIN_USERNAME = "Raki_vpn"
+
 BASE_URL = "https://panel.astravionix.site/api/v1"
 RESELLER_INBOUND_ID = 3
 
 def is_admin(user):
-    return (
-        user.username
-        and user.username.lower() == ADMIN_USERNAME.lower()
-    )
+    if not user:
+        return False
+
+    username = (user.username or "").strip().lower()
+
+    return username == ADMIN_USERNAME.lower()
 
 
 def main_menu(user):
     buttons = [
         [
-            InlineKeyboardButton("🛒 خرید VPN", callback_data="buy"),
-            InlineKeyboardButton("💰 کیف پول", callback_data="wallet"),
+            InlineKeyboardButton(
+                "🛒 خرید VPN",
+                callback_data="buy"
+            ),
+            InlineKeyboardButton(
+                "💰 کیف پول",
+                callback_data="wallet"
+            )
         ],
         [
-            InlineKeyboardButton("📦 سرویس‌های من", callback_data="services"),
-            InlineKeyboardButton("🔄 تمدید", callback_data="renew"),
+            InlineKeyboardButton(
+                "📦 سرویس‌های من",
+                callback_data="services"
+            ),
+            InlineKeyboardButton(
+                "🔄 تمدید",
+                callback_data="renew"
+            )
         ],
         [
-            InlineKeyboardButton("🎧 پشتیبانی", callback_data="support"),
-            InlineKeyboardButton("👑 نمایندگی", callback_data="reseller"),
-        ],
+            InlineKeyboardButton(
+                "🎧 پشتیبانی",
+                callback_data="support"
+            )
+        ]
     ]
+
+    if is_admin(user):
+        buttons.append([
+            InlineKeyboardButton(
+                "👑 پنل مدیریت",
+                callback_data="admin_panel"
+            )
+        ])
+
+    return InlineKeyboardMarkup(buttons)
 
     # فقط Raki_vpn پنل مدیریت را می‌بیند
     if is_admin(user):
@@ -289,36 +317,55 @@ def get_services(telegram_id):
 
 def get_admin_chat_id():
     conn = db()
+    cur = conn.cursor()
 
-    row = conn.execute("""
-        SELECT admin_chat_id
+    cur.execute("""
+        SELECT telegram_id
         FROM users
-        WHERE username=?
+        WHERE lower(username) = lower(?)
         LIMIT 1
-    """, (ADMIN_USERNAME,)).fetchone()
+    """, (ADMIN_USERNAME,))
+
+    row = cur.fetchone()
 
     conn.close()
 
-    if row and row["admin_chat_id"]:
-        return int(row["admin_chat_id"])
+    if row:
+        return row[0]
 
     return None
 
 
 def save_admin_chat_id(user):
-    if (user.username or "").lower() != ADMIN_USERNAME.lower():
+    if not is_admin(user):
         return
 
     conn = db()
+    cur = conn.cursor()
 
-    conn.execute(
-        "UPDATE users SET admin_chat_id=? WHERE telegram_id=?",
-        (user.id, user.id)
-    )
+    cur.execute("""
+        INSERT INTO users (
+            telegram_id,
+            username,
+            balance,
+            reseller_level,
+            admin_chat_id
+        )
+        VALUES (?, ?, 0, 0, ?)
+        ON CONFLICT(telegram_id)
+        DO UPDATE SET
+            username = excluded.username,
+            admin_chat_id = excluded.admin_chat_id
+    """, (
+        user.id,
+        user.username or "",
+        user.id
+    ))
 
     conn.commit()
     conn.close()
 
+    print("ADMIN CHAT ID SAVED:", user.id)
 
 # ================= API =================
 
@@ -390,13 +437,20 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
 
     ensure_user(user)
-    save_admin_chat_id(user)
+
+    if is_admin(user):
+        save_admin_chat_id(user)
+        print(
+            "MAIN ADMIN LOGIN:",
+            user.id,
+            user.username
+        )
 
     await update.message.reply_text(
-        "سلام 👋\n"
+        "سلام 👋\n\n"
         "به ربات فروش VPN خوش آمدید.\n\n"
         "از منوی زیر استفاده کنید:",
-        reply_markup=main_menu()
+        reply_markup=main_menu(user)
     )
 
 
@@ -824,7 +878,15 @@ async def charge_start(
     await query.edit_message_text(
         "💳 مبلغ شارژ را به تومان وارد کنید.\n\n"
         "مثلاً:\n"
-        "100000"
+        "100000",
+        reply_markup=InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton(
+                    "↩️ برگشت",
+                    callback_data="back"
+                )
+            ]
+        ])
     )
 
     return CHARGE_AMOUNT
@@ -869,6 +931,7 @@ async def charge_amount(
 
 
 async def charge_receipt(
+async def charge_receipt(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE
 ):
@@ -878,7 +941,15 @@ async def charge_receipt(
 
     if not update.message.photo:
         await update.message.reply_text(
-            "❌ لطفاً عکس رسید را ارسال کنید."
+            "❌ لطفاً عکس رسید را ارسال کنید.",
+            reply_markup=InlineKeyboardMarkup([
+                [
+                    InlineKeyboardButton(
+                        "↩️ برگشت",
+                        callback_data="back"
+                    )
+                ]
+            ])
         )
         return CHARGE_RECEIPT
 
@@ -892,10 +963,135 @@ async def charge_receipt(
     if amount <= 0:
         await update.message.reply_text(
             "❌ مبلغ شارژ پیدا نشد.\n"
-            "دوباره از کیف پول شروع کنید."
+            "دوباره از کیف پول شروع کنید.",
+            reply_markup=InlineKeyboardMarkup([
+                [
+                    InlineKeyboardButton(
+                        "↩️ برگشت به منو",
+                        callback_data="back"
+                    )
+                ]
+            ])
         )
         return ConversationHandler.END
 
+    conn = db()
+    cur = conn.cursor()
+
+    cur.execute("""
+        INSERT INTO charge_requests (
+            telegram_id,
+            amount,
+            status,
+            created_at
+        )
+        VALUES (?, ?, 'pending', ?)
+    """, (
+        user.id,
+        amount,
+        datetime.datetime.now().isoformat()
+    ))
+
+    request_id = cur.lastrowid
+
+    conn.commit()
+    conn.close()
+
+    # پیدا کردن ادمین
+    admin_chat_id = get_admin_chat_id()
+
+    # اگر خود کاربر ادمین باشد، شناسه خودش را ذخیره کن
+    if is_admin(user):
+        save_admin_chat_id(user)
+        admin_chat_id = user.id
+
+    if admin_chat_id:
+        try:
+            keyboard = InlineKeyboardMarkup([
+                [
+                    InlineKeyboardButton(
+                        "✅ تایید پرداخت",
+                        callback_data=f"charge_approve:{request_id}"
+                    ),
+                    InlineKeyboardButton(
+                        "❌ رد پرداخت",
+                        callback_data=f"charge_reject:{request_id}"
+                    )
+                ]
+            ])
+
+            await context.bot.send_photo(
+                chat_id=admin_chat_id,
+                photo=update.message.photo[-1].file_id,
+                caption=(
+                    "💳 درخواست شارژ جدید\n\n"
+                    f"👤 کاربر: {user.first_name}\n"
+                    f"🆔 Telegram ID: {user.id}\n"
+                    f"🔹 Username: @{user.username or 'ندارد'}\n"
+                    f"💰 مبلغ: {amount:,} تومان\n"
+                    f"🧾 شماره درخواست: #{request_id}\n\n"
+                    "لطفاً رسید را بررسی کنید."
+                ),
+                reply_markup=keyboard
+            )
+
+            print(
+                "CHARGE RECEIPT SENT TO ADMIN:",
+                admin_chat_id
+            )
+
+        except Exception as e:
+            print(
+                "ADMIN SEND ERROR:",
+                repr(e)
+            )
+
+            await update.message.reply_text(
+                "⚠️ رسید ثبت شد، اما ارسال آن برای ادمین با مشکل مواجه شد.",
+                reply_markup=InlineKeyboardMarkup([
+                    [
+                        InlineKeyboardButton(
+                            "↩️ برگشت به منو",
+                            callback_data="back"
+                        )
+                    ]
+                ])
+            )
+
+            return ConversationHandler.END
+
+    else:
+        await update.message.reply_text(
+            "⚠️ رسید ثبت شد، اما ادمین هنوز ربات را فعال نکرده است.",
+            reply_markup=InlineKeyboardMarkup([
+                [
+                    InlineKeyboardButton(
+                        "↩️ برگشت به منو",
+                        callback_data="back"
+                    )
+                ]
+            ])
+        )
+
+        return ConversationHandler.END
+
+    await update.message.reply_text(
+        "✅ رسید پرداخت با موفقیت ثبت شد.\n\n"
+        "⏳ رسید برای ادمین ارسال شد و پس از بررسی، "
+        "مبلغ به کیف پول شما اضافه می‌شود.",
+        reply_markup=InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton(
+                    "↩️ برگشت به منو",
+                    callback_data="back"
+                )
+            ]
+        ])
+    )
+
+    context.user_data.pop("charge_amount", None)
+
+    return ConversationHandler.END
     conn = db()
 
     cur = conn.cursor()
