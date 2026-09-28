@@ -16,7 +16,7 @@ from telegram.ext import (
 
 BOT_TOKEN = os.environ["BOT_TOKEN"]
 PANEL_API_KEY = os.environ["PANEL_API_KEY"]
-
+ADMIN_USERNAME = "Raki_vpn"
 BASE_URL = "https://panel.astravionix.site/api/v1"
 RESELLER_INBOUND_ID = 3
 
